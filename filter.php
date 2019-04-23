@@ -50,6 +50,10 @@ defined('MOODLE_INTERNAL') || die();
  */
 class filter_multilang2 extends moodle_text_filter {
 
+    protected $mylang;
+    protected $parentlangs;
+    protected $langs = [];
+    
     /**
      * This function filters the received text based on the language
      * tags embedded in the text, and the current user language.
@@ -58,15 +62,33 @@ class filter_multilang2 extends moodle_text_filter {
      * @param array $options The filter options.
      * @return string The filtered text for this multilang block.
      */
-    public function filter($text, array $options = array()) {
-
+    public function filter($text, array $options = array()) {                
         if (stripos($text, 'mlang') === false) {
             return $text;
         }
+        
+        static $parentcache;
+        
+        if (!isset($parentcache)) {
+            $parentcache = array();
+        }
 
+        $this->mylang = current_language();
+        if (!array_key_exists($this->mylang, $parentcache)) {
+            $this->parentlangs = get_string_manager()->get_language_dependencies($this->mylang);
+            $parentcache[$this->mylang] = $this->parentlangs;
+        } else {
+            $this->parentlangs = $parentcache[$this->mylang];
+        }        
+        
         $search = '/{mlang\s+([a-z0-9_-]+)\s*}(.*?){\s*mlang\s*}/is';
         $result = preg_replace_callback($search, 'filter_multilang2::replace_callback', $text);
-
+        
+        if (!in_array($this->mylang, $this->langs) && empty(array_intersect($this->langs, $this->parentlangs))) {
+            $this->mylang = "default";
+            $result = preg_replace_callback($search, 'filter_multilang2::replace_callback', $text);            
+        }        
+        
         if (is_null($result)) {
             return $text; // Error during regex processing, keep original text.
         } else {
@@ -84,9 +106,11 @@ class filter_multilang2 extends moodle_text_filter {
      *                         and the text associated with that language.
      * @return string
      */
-    static protected function replace_callback($langblock) {
-        static $parentcache;
-
+    protected function replace_callback($langblock) {
+        
+        /*
+        static $parentcache;                
+        
         if (!isset($parentcache)) {
             $parentcache = array();
         }
@@ -97,15 +121,19 @@ class filter_multilang2 extends moodle_text_filter {
             $parentcache[$mylang] = $parentlangs;
         } else {
             $parentlangs = $parentcache[$mylang];
-        }
-
+        }         
+         
+        */
+        
         /* Normalize languages. We can use strtolower instead of core_text::strtolower()
          * as language short names are ASCII only, and strtolower is much faster. We also
          * don't need trim(), as the regex capture doesn't include trailing/leading whitespace
          */
         $blocklang = str_replace('-', '_', strtolower($langblock[1]));
+        $this->langs[$blocklang] = $blocklang;
         $blocktext = $langblock[2];
-        if (($blocklang == $mylang) || in_array($blocklang, $parentlangs)) {
+        //if (($blocklang == $mylang) || in_array($blocklang, $parentlangs)) {
+        if (($blocklang == $this->mylang) || in_array($blocklang, $this->parentlangs)) {
             return $blocktext;
         }
         return '';
